@@ -1,0 +1,34 @@
+{
+  "compileOnSave": false,
+  "compilerOptions": {
+    "outDir": "./dist/out-tsc",
+    "strict": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "experimentalDecorators": true,
+    "importHelpers": true,
+    "target": "ES2022",
+    "module": "preserve",
+    "useDefineForClassFields": false,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "moduleResolution": "bundler",
+    "baseUrl": ".",
+    "paths": {
+      "@openhistorymap/timeline-core": ["lib/core/index.ts"],
+      "@openhistorymap/timeline-core/wikidata": ["lib/core/wikidata.ts"],
+      "@openhistorymap/timeline-core/periodo": ["lib/core/periodo.ts"],
+      "@openhistorymap/timeline-core/vis": ["lib/core/vis.ts"],
+      "@openhistorymap/timeline-angular": ["lib/angular/public-api.ts"]
+    }
+  },
+  "angularCompilerOptions": {
+    "enableI18nLegacyMessageIdFormat": false,
+    "strictInjectionParameters": true,
+    "strictInputAccessModifiers": false,
+    "strictTemplates": false
+  }
+}

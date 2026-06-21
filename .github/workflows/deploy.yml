@@ -1,0 +1,51 @@
+name: Deploy Open History Line
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/configure-pages@v5
+
+      - run: npm install
+
+      - name: Build
+        run: npx ng build --configuration production --base-href "${{ vars.BASE_HREF || '/openhistoryline/' }}"
+
+      - name: SPA fallbacks
+        run: |
+          cp dist/openhistoryline/browser/index.html dist/openhistoryline/browser/404.html
+          printf '/*    /index.html   200\n' > dist/openhistoryline/browser/_redirects
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/openhistoryline/browser
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,80 @@
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">Open History Line</span>
+      <span class="tag">an interactive timeline of history</span>
+    </div>
+
+    <div class="search">
+      <input
+        type="text"
+        [(ngModel)]="searchTerm"
+        (input)="onSearchInput()"
+        (focus)="onSearchInput()"
+        (blur)="closeSearch()"
+        placeholder="Search Wikidata — a place, person, or empire…"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <span class="spin" *ngIf="searching"></span>
+      <div class="results" *ngIf="searchOpen">
+        <button class="hit" *ngFor="let h of searchResults" (mousedown)="pickEntity(h)">
+          <span class="h-label">{{ h.label }}</span>
+          <span class="h-desc" *ngIf="h.description">{{ h.description }}</span>
+        </button>
+      </div>
+    </div>
+
+    <a class="ohm" href="https://www.openhistorymap.org" target="_blank" rel="noopener">OHM ↗</a>
+  </header>
+
+  <div class="body">
+    <aside class="panel">
+      <ng-container *ngFor="let src of sources">
+        <h3 class="src">{{ src }}</h3>
+        <button
+          class="coll"
+          *ngFor="let c of collectionsBySource(src)"
+          [class.active]="c.id === activeId"
+          (click)="selectCollection(c)"
+        >
+          <span class="c-label">{{ c.label }}</span>
+          <span class="c-blurb">{{ c.blurb }}</span>
+        </button>
+      </ng-container>
+
+      <p class="credit">
+        Events from <a href="https://www.wikidata.org" target="_blank" rel="noopener">Wikidata</a>
+        &amp; <a href="https://perio.do" target="_blank" rel="noopener">PeriodO</a>, drawn with
+        <a href="https://github.com/openhistorymap/timelin" target="_blank" rel="noopener">timel.in</a>.
+      </p>
+    </aside>
+
+    <main class="main">
+      <div class="stage">
+        <timelin-timeline
+          [year]="year"
+          [groupGutter]="148"
+          (yearChange)="year = $event"
+          (eventSelect)="onEvent($event)"
+          (groupSelect)="onGroup($event)"
+        ></timelin-timeline>
+      </div>
+
+      <div class="footer">
+        <div class="status">
+          <span class="spin" *ngIf="loading"></span>
+          <span>{{ status }}</span>
+        </div>
+
+        <div class="detail" *ngIf="selected">
+          <span class="d-year">{{ yearRange(selected) }}</span>
+          <span class="d-title">{{ selected.title }}</span>
+          <span class="d-group" *ngIf="selected.group">{{ selected.group }}</span>
+          <span class="d-desc" *ngIf="selected.description">{{ selected.description }}</span>
+          <a *ngIf="selected.url" [href]="selected.url" target="_blank" rel="noopener">View source ↗</a>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
