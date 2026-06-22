@@ -158,6 +158,9 @@ export class Timeline {
 
   private hoveredEra: number | null = null;
   private hoveredEvent: string | null = null;
+  /* Marker element refs, so hover highlights toggle in place (no re-render → no flicker). */
+  private eventMarkers = new Map<string, { el: SVGElement; span: boolean; colored: boolean }>();
+  private eraMarkers = new Map<number, SVGElement[]>();
 
   /* interaction state */
   private dragging = false;
@@ -610,6 +613,7 @@ export class Timeline {
 
   private renderEras() {
     clear(this.gEras);
+    this.eraMarkers.clear();
     const top = this.layout.laneAreaTop;
     // Eras live in the scrolled group: span the full content so the line keeps
     // filling the viewport at any scroll offset.
@@ -620,21 +624,21 @@ export class Timeline {
       const x = this.xFor(e.year);
       if (x < this.layout.plotLeft - 0.5) return;
       const hovered = this.hoveredEra === i;
-      this.gEras.append(
-        svgEl('line', {
-          x1: x,
-          x2: x,
-          y1: top,
-          y2: lineBottom,
-          class: 'timelin-era-line' + (hovered ? ' is-hovered' : ''),
-        }),
-        svgEl('circle', {
-          cx: x,
-          cy: top,
-          r: 2,
-          class: 'timelin-era-dot' + (hovered ? ' is-hovered' : ''),
-        }),
-      );
+      const line = svgEl('line', {
+        x1: x,
+        x2: x,
+        y1: top,
+        y2: lineBottom,
+        class: 'timelin-era-line' + (hovered ? ' is-hovered' : ''),
+      });
+      const dot = svgEl('circle', {
+        cx: x,
+        cy: top,
+        r: 2,
+        class: 'timelin-era-dot' + (hovered ? ' is-hovered' : ''),
+      });
+      this.eraMarkers.set(i, [line, dot]);
+      this.gEras.append(line, dot);
       const hit = svgEl('rect', {
         x: x - 9,
         y: top - 6,
@@ -654,6 +658,7 @@ export class Timeline {
 
   private renderEvents() {
     clear(this.gEvents);
+    this.eventMarkers.clear();
     if (!this.events.length) return;
     if (this.layout.mode === 'swimlane') this.renderSwimEvents();
     else this.renderFlatEvents();
@@ -721,6 +726,7 @@ export class Timeline {
         rect.style.fillOpacity = hovered ? '0.6' : '0.34';
         rect.style.stroke = color;
       }
+      this.eventMarkers.set(ev.id, { el: rect, span: true, colored: !!color });
       this.gEvents.append(rect);
     } else {
       const cx = Math.max(plotLeft, Math.min(this.width, x0));
@@ -731,6 +737,7 @@ export class Timeline {
         class: 'timelin-event-dot' + (hovered ? ' is-hovered' : ''),
       });
       if (color) dot.style.fill = color;
+      this.eventMarkers.set(ev.id, { el: dot, span: false, colored: !!color });
       this.gEvents.append(dot);
     }
 
@@ -852,17 +859,36 @@ export class Timeline {
   /* Tooltips                                                                */
   /* ===================================================================== */
 
+  /* Toggle the hover highlight on existing elements — no re-render, so the hit
+     targets under the cursor are never recreated (which would cause flicker). */
+  private setEraHover(i: number, on: boolean) {
+    this.eraMarkers.get(i)?.forEach((el) => el.classList.toggle('is-hovered', on));
+  }
+
+  private setEventHover(id: string, on: boolean) {
+    const m = this.eventMarkers.get(id);
+    if (!m) return;
+    m.el.classList.toggle('is-hovered', on);
+    if (m.span) {
+      if (m.colored) m.el.style.fillOpacity = on ? '0.6' : '0.34';
+    } else {
+      m.el.setAttribute('r', on ? '4' : '3');
+    }
+  }
+
   private showEraTooltip(i: number, x: number) {
     const e = this.eras[i];
     if (!e) return;
+    if (this.hoveredEra !== null && this.hoveredEra !== i) this.setEraHover(this.hoveredEra, false);
     this.hoveredEra = i;
-    this.renderEras();
+    this.setEraHover(i, true);
     this.fillTooltip(formatPlainYear(e.year), e.label, x, this.layout.laneAreaTop);
   }
 
   private showEventTooltip(ev: TimelineEvent, x: number, anchorY: number) {
+    if (this.hoveredEvent !== null && this.hoveredEvent !== ev.id) this.setEventHover(this.hoveredEvent, false);
     this.hoveredEvent = ev.id;
-    this.renderEvents();
+    this.setEventHover(ev.id, true);
     // anchorY is a content coordinate; the lane content is scrolled by scrollY.
     const viewportY = Math.max(this.layout.laneAreaTop, anchorY - this.scrollY);
     this.fillTooltip(
@@ -895,18 +921,18 @@ export class Timeline {
     // Open upward by default; flip downward when there isn't room above the top
     // edge (so the tooltip never spills past the timeline into the chrome above).
     const h = this.tooltip.offsetHeight;
-    if (h > 0 && anchorY - h - 16 < 0) this.tooltip.classList.add('down');
+    if (h > 0 && anchorY - h - 10 < 0) this.tooltip.classList.add('down');
   }
 
   private hideTooltip() {
     this.tooltip.style.display = 'none';
     if (this.hoveredEra !== null) {
+      this.setEraHover(this.hoveredEra, false);
       this.hoveredEra = null;
-      this.renderEras();
     }
     if (this.hoveredEvent !== null) {
+      this.setEventHover(this.hoveredEvent, false);
       this.hoveredEvent = null;
-      this.renderEvents();
     }
   }
 

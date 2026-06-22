@@ -191,12 +191,12 @@ export const CSS = `
   left: 0;
   pointer-events: none;
   z-index: 12;
-  transform: translate(-50%, calc(-100% - 14px));
+  transform: translate(-50%, calc(-100% - 8px));
   animation: timelin-fade-in 160ms var(--timelin-ease-out);
 }
 @keyframes timelin-fade-in {
-  from { opacity: 0; transform: translate(-50%, calc(-100% - 8px)); }
-  to   { opacity: 1; transform: translate(-50%, calc(-100% - 14px)); }
+  from { opacity: 0; transform: translate(-50%, calc(-100% - 4px)); }
+  to   { opacity: 1; transform: translate(-50%, calc(-100% - 8px)); }
 }
 .timelin-tooltip .card {
   position: relative;
