@@ -148,6 +148,70 @@ export async function searchEntities(query: string, signal?: AbortSignal): Promi
   return (json.search ?? []).map((s) => ({ id: s.id, label: s.label ?? s.id, description: s.description }));
 }
 
+/* --- Detail lookups (info panel) -------------------------------------------- */
+
+/** A place referenced by an event/period, with links back out. */
+export interface PlaceRef {
+  qid: string;
+  label: string;
+}
+
+/** Rich info for a Wikidata item, for the detail sidebar. */
+export interface WikidataInfo {
+  qid: string;
+  label?: string;
+  description?: string;
+  /** English Wikipedia article URL, if the item has one. */
+  wikipedia?: string;
+  wikidataUrl: string;
+  /** A Wikimedia Commons image URL (P18), if any. */
+  image?: string;
+}
+
+/** Extract a `Q…` id from a Wikidata entity/wiki URL, if present. */
+export function qidFromUrl(url?: string): string | undefined {
+  const m = url && /(Q\d+)(?:$|[?#/])/.exec(url);
+  return m ? m[1] : undefined;
+}
+
+/** The Wikidata places a PeriodO period covers (from `spatialCoverage`). */
+export function placesFromData(data: unknown): PlaceRef[] {
+  const sc = (data as { spatialCoverage?: { id?: string; label?: string }[] } | undefined)?.spatialCoverage;
+  if (!Array.isArray(sc)) return [];
+  const out: PlaceRef[] = [];
+  for (const s of sc) {
+    const qid = qidFromUrl(s.id);
+    if (qid) out.push({ qid, label: s.label ?? qid });
+  }
+  return out;
+}
+
+/** Fetch label, description, English Wikipedia link, and lead image for a Wikidata item. */
+export async function fetchWikidataInfo(qid: string, signal?: AbortSignal): Promise<WikidataInfo> {
+  const url =
+    'https://www.wikidata.org/w/api.php?action=wbgetentities&format=json&origin=*' +
+    `&ids=${qid}&props=labels|descriptions|sitelinks|claims&languages=en&sitefilter=enwiki`;
+  const res = await fetch(url, { signal });
+  if (!res.ok) throw new Error(`Wikidata fetch failed: ${res.status}`);
+  const json = (await res.json()) as { entities?: Record<string, unknown> };
+  const ent = (json.entities?.[qid] ?? {}) as {
+    labels?: { en?: { value?: string } };
+    descriptions?: { en?: { value?: string } };
+    sitelinks?: { enwiki?: { title?: string } };
+    claims?: { P18?: { mainsnak?: { datavalue?: { value?: string } } }[] };
+  };
+  const title = ent.sitelinks?.enwiki?.title;
+  const image = ent.claims?.P18?.[0]?.mainsnak?.datavalue?.value;
+  return {
+    qid,
+    label: ent.labels?.en?.value,
+    description: ent.descriptions?.en?.value,
+    wikipedia: title ? `https://en.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, '_'))}` : undefined,
+    wikidataUrl: `https://www.wikidata.org/wiki/${qid}`,
+    image: image ? `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(image)}?width=360` : undefined,
+  };
+}
+
 /** Build a removable layer from a chosen entity: dated events located in / about it. */
 export function entityLayer(hit: EntityHit, index: number): Layer {
   const sparql = `SELECT ?item ?itemLabel ?itemDescription ?date ?endDate ?classLabel WHERE {

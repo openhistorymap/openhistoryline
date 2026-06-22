@@ -88,15 +88,49 @@
           <span class="spin" *ngIf="loadingIds.size"></span>
           <span>{{ status }}</span>
         </div>
-
-        <div class="detail" *ngIf="selected">
-          <span class="d-year">{{ yearRange(selected) }}</span>
-          <span class="d-title">{{ selected.title }}</span>
-          <span class="d-group" *ngIf="selected.group">{{ layerLabel(selected.group) }}</span>
-          <span class="d-desc" *ngIf="selected.description">{{ selected.description }}</span>
-          <a *ngIf="selected.url" [href]="selected.url" target="_blank" rel="noopener">View source ↗</a>
-        </div>
       </div>
     </main>
+
+    <aside class="detail-panel" *ngIf="panelOpen && selected">
+      <button class="dp-close" (click)="closePanel()" title="Close">✕</button>
+
+      <div class="dp-head">
+        <span class="dp-year">{{ yearRange(selected) }}</span>
+        <h2 class="dp-title">{{ info?.label || selected.title }}</h2>
+        <span class="dp-layer" *ngIf="selected.group">{{ layerLabel(selected.group) }}</span>
+      </div>
+
+      <div class="dp-loading" *ngIf="infoLoading"><span class="spin"></span> Looking up Wikidata…</div>
+
+      <img class="dp-img" *ngIf="info?.image as img" [src]="img" alt="" loading="lazy" />
+
+      <p class="dp-desc" *ngIf="info?.description || selected.description">
+        {{ info?.description || selected.description }}
+      </p>
+
+      <div class="dp-links">
+        <a *ngIf="info?.wikipedia as wp" [href]="wp" target="_blank" rel="noopener" class="primary">Wikipedia ↗</a>
+        <a *ngIf="info as i" [href]="i.wikidataUrl" target="_blank" rel="noopener">Wikidata ↗</a>
+        <a *ngIf="periodoUrl as pu" [href]="pu" target="_blank" rel="noopener">PeriodO ↗</a>
+      </div>
+
+      <div class="dp-places" *ngIf="places.length">
+        <h3>Where</h3>
+        <div class="place-chips">
+          <a
+            class="chip"
+            *ngFor="let p of places"
+            [href]="wikipediaUrl(p.qid)"
+            target="_blank"
+            rel="noopener"
+            >{{ p.label }}</a
+          >
+        </div>
+      </div>
+
+      <p class="dp-foot" *ngIf="!info && !infoLoading && !places.length">
+        No linked Wikidata record for this entry.
+      </p>
+    </aside>
   </div>
 </div>

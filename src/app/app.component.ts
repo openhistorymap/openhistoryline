@@ -7,9 +7,14 @@ import {
   CATEGORIES,
   LAYERS,
   entityLayer,
+  fetchWikidataInfo,
+  placesFromData,
+  qidFromUrl,
   searchEntities,
   type EntityHit,
   type Layer,
+  type PlaceRef,
+  type WikidataInfo,
 } from './data';
 
 @Component({
@@ -34,8 +39,16 @@ export class AppComponent implements AfterViewInit {
 
   totalEvents = 0;
   year = 1000;
-  selected: TimelineEvent | null = null;
   status = 'Switch on layers to compose a timeline.';
+
+  /* detail panel */
+  selected: TimelineEvent | null = null;
+  panelOpen = false;
+  info: WikidataInfo | null = null;
+  infoLoading = false;
+  places: PlaceRef[] = [];
+  periodoUrl: string | null = null;
+  private infoToken = 0;
 
   searchTerm = '';
   searchResults: EntityHit[] = [];
@@ -141,7 +154,43 @@ export class AppComponent implements AfterViewInit {
   /* timeline outputs */
   onEvent(e: TimelineEvent): void {
     this.selected = e;
+    this.panelOpen = true;
+    void this.loadInfo(e);
   }
+
+  private async loadInfo(e: TimelineEvent): Promise<void> {
+    const token = ++this.infoToken;
+    this.info = null;
+    this.places = placesFromData(e.data);
+    this.periodoUrl = e.url && /ark:|n2t\.net|perio\.do/.test(e.url) ? e.url : null;
+    const qid = e.url && /wikidata\.org/.test(e.url) ? qidFromUrl(e.url) : undefined;
+    if (!qid) {
+      this.infoLoading = false;
+      return;
+    }
+    this.infoLoading = true;
+    try {
+      const info = await fetchWikidataInfo(qid);
+      if (token === this.infoToken) this.info = info;
+    } catch {
+      /* fall back to the basic event fields */
+    } finally {
+      if (token === this.infoToken) this.infoLoading = false;
+    }
+  }
+
+  closePanel(): void {
+    this.panelOpen = false;
+    this.selected = null;
+    this.info = null;
+    this.places = [];
+    this.periodoUrl = null;
+  }
+
+  wikipediaUrl(qid: string): string {
+    return `https://www.wikidata.org/wiki/${qid}`;
+  }
+
   onGroup(g: TimelineGroup): void {
     this.status = `Layer: ${g.label ?? g.id}`;
   }
