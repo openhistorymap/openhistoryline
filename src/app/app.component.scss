@@ -300,14 +300,12 @@
 
 .stage {
   flex: 1 1 auto;
-  overflow-y: auto;
-  display: flex;
-  align-items: stretch;
+  min-height: 0;
+  overflow: hidden; /* the timeline scrolls its lanes internally */
 }
 .stage timelin-timeline {
   display: block;
   width: 100%;
-  align-self: center;
 }
 
 .footer {

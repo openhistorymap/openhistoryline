@@ -43,7 +43,10 @@ import {
   encapsulation: ViewEncapsulation.None,
   template: `<div #host class="timelin-host"></div>`,
   styles: [
-    `:host { display: block; width: 100%; height: var(--timelin-height, 120px); }
+    // min-height (not height) so the host fits the timeline's own height when
+    // autoHeight grows/shrinks it, while still honouring --timelin-height for
+    // fixed-height (non-autoHeight) usage.
+    `:host { display: block; width: 100%; min-height: var(--timelin-height, 96px); }
      .timelin-host { width: 100%; height: 100%; }`,
   ],
 })
@@ -53,6 +56,7 @@ export class TimelinTimelineComponent implements AfterViewInit, OnChanges, OnDes
   @Input() groups?: TimelineGroup[];
   @Input() groupMode?: 'auto' | 'swimlane' | 'flat';
   @Input() autoHeight = true;
+  @Input() maxHeight?: number;
   @Input() groupGutter?: number;
   @Input() eras?: Era[];
   @Input() viewSpan?: number;
@@ -84,6 +88,7 @@ export class TimelinTimelineComponent implements AfterViewInit, OnChanges, OnDes
         groups: this.groups,
         groupMode: this.groupMode,
         autoHeight: this.autoHeight,
+        maxHeight: this.maxHeight,
         groupGutter: this.groupGutter,
         eras: this.eras,
         viewSpan: this.viewSpan,
@@ -116,6 +121,7 @@ export class TimelinTimelineComponent implements AfterViewInit, OnChanges, OnDes
     }
     if (changes['events'] && this.events) this.tl.setEvents(this.events);
     if (changes['groups'] && this.groups) this.tl.setGroups(this.groups);
+    if (changes['maxHeight']) this.tl.setMaxHeight(this.maxHeight);
     if (changes['eras'] && this.eras) this.tl.setEras(this.eras);
     if (changes['theme'] && this.theme) this.tl.setTheme(this.theme);
   }

@@ -143,6 +143,13 @@ export interface TimelineOptions {
   groupMode?: 'auto' | 'swimlane' | 'flat';
   /** In swimlane mode, grow the host's height to fit all lanes. Default true. */
   autoHeight?: boolean;
+  /**
+   * Cap the rendered height in px (with `autoHeight`). When the lanes are taller,
+   * the component stays at this height and scrolls them vertically — the time
+   * axis, cursor and gutter stay pinned. Drag vertically, shift-wheel, or use the
+   * scrollbar. Unset = grow to fit.
+   */
+  maxHeight?: number;
   /** Width (px) of the left label gutter in swimlane mode. Default 132; set 0 to hide it. */
   groupGutter?: number;
   /** Gutter label for the implicit lane holding untagged events. Default `''`. */

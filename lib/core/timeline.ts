@@ -65,7 +65,12 @@ interface Layout {
   gutter: number;
   plotLeft: number;
   plotWidth: number;
+  /** Full height of all lanes. */
   contentHeight: number;
+  /** Rendered/viewport height (≤ contentHeight when scrolling). */
+  effectiveHeight: number;
+  /** How far the lanes can scroll vertically (contentHeight − effectiveHeight). */
+  maxScrollY: number;
   laneAreaTop: number;
   rows: LaneRow[];
   /* flat-band metrics */
@@ -73,6 +78,8 @@ interface Layout {
   flatBottom: number;
   flatMaxLanes: number;
 }
+
+let CLIP_SEQ = 0;
 
 /**
  * A framework-agnostic, deep-time interactive timeline.
@@ -101,14 +108,23 @@ export class Timeline {
   private gEras!: SVGGElement;
   private gEvents!: SVGGElement;
   private gGutter!: SVGGElement;
+  private gGutterBg!: SVGGElement;
   private gCursor!: SVGGElement;
+  private gScrollbar!: SVGGElement;
+  private gScrollClip!: SVGGElement;
+  private gScrollInner!: SVGGElement;
+  private clipRect!: SVGRectElement;
   private readout!: HTMLDivElement;
   private readoutPlain!: HTMLSpanElement;
   private tooltip!: HTMLDivElement;
 
-  private opts: Required<Omit<TimelineOptions, 'theme' | 'view'>> & {
+  private opts: Required<Omit<TimelineOptions, 'theme' | 'view' | 'maxHeight'>> & {
     theme?: Partial<Theme>;
+    maxHeight?: number;
   };
+
+  private scrollY = 0;
+  private clipId = `timelin-clip-${++CLIP_SEQ}`;
 
   private width = 1000;
   private height = 120;
@@ -131,6 +147,8 @@ export class Timeline {
     plotLeft: 0,
     plotWidth: 1000,
     contentHeight: 120,
+    effectiveHeight: 120,
+    maxScrollY: 0,
     laneAreaTop: LANE_AREA_TOP,
     rows: [],
     flatTop: 46,
@@ -144,10 +162,15 @@ export class Timeline {
   /* interaction state */
   private dragging = false;
   private dragStartX = 0;
+  private dragStartY = 0;
+  private dragStartScrollY = 0;
   private dragStartView: [number, number] = [0, 0];
   private dragMoved = false;
   private gutterDown = false;
   private gutterDownY = 0;
+  private scrollbarDrag = false;
+  private scrollStartPointer = 0;
+  private scrollStartY = 0;
 
   private resizeObs?: ResizeObserver;
   private cursorRaf?: number;
@@ -176,6 +199,7 @@ export class Timeline {
       injectStyles: options.injectStyles ?? true,
       animate: options.animate ?? true,
       seekOnEventClick: options.seekOnEventClick ?? true,
+      maxHeight: options.maxHeight,
       theme: options.theme,
     };
 
@@ -225,15 +249,34 @@ export class Timeline {
     this.gEras = svgGroup('timelin-eras');
     this.gEvents = svgGroup('timelin-events');
     this.gGutter = svgGroup('timelin-gutter-g');
+    this.gGutterBg = svgGroup('timelin-gutter-bg-g');
     this.gCursor = svgGroup('timelin-cursor');
+    this.gScrollbar = svgGroup('timelin-scrollbar-g');
+
+    // The lane content (lanes, eras, events, gutter labels) lives inside a
+    // clipped, vertically-translatable group, so the axis/cursor/gutter stay
+    // pinned while the lanes scroll. Fixed elements are siblings outside it.
+    const defs = document.createElementNS(SVG_NS, 'defs');
+    const clip = document.createElementNS(SVG_NS, 'clipPath');
+    clip.setAttribute('id', this.clipId);
+    this.clipRect = svgEl('rect', { x: 0, y: 0, width: 1, height: 1 }) as SVGRectElement;
+    clip.append(this.clipRect);
+    defs.append(clip);
+
+    this.gScrollClip = svgGroup('timelin-scrollclip');
+    this.gScrollClip.setAttribute('clip-path', `url(#${this.clipId})`);
+    this.gScrollInner = svgGroup('timelin-scrollinner');
+    this.gScrollInner.append(this.gLanes, this.gEras, this.gEvents, this.gGutter);
+    this.gScrollClip.append(this.gScrollInner);
+
     this.svg.append(
-      this.gLanes,
+      defs,
+      this.gGutterBg,
+      this.gScrollClip,
       this.gTicks,
       this.gLabels,
-      this.gEras,
-      this.gEvents,
-      this.gGutter,
       this.gCursor,
+      this.gScrollbar,
     );
 
     this.readout = document.createElement('div');
@@ -328,14 +371,17 @@ export class Timeline {
 
     if (mode === 'flat') {
       const top = 46;
-      const bottom = Math.max(96, this.hostHeight) - 22;
+      const h = Math.max(96, this.hostHeight);
+      const bottom = h - 22;
       const maxLanes = Math.max(1, Math.floor((bottom - top) / SUBLANE_PITCH));
       return {
         mode,
         gutter: 0,
         plotLeft: 0,
         plotWidth: this.width,
-        contentHeight: Math.max(96, this.hostHeight),
+        contentHeight: h,
+        effectiveHeight: h,
+        maxScrollY: 0,
         laneAreaTop: top,
         rows: [],
         flatTop: top,
@@ -374,12 +420,23 @@ export class Timeline {
     if (ungrouped.length) addRow(null, ungrouped, this.opts.ungroupedLabel);
 
     const contentHeight = Math.max(96, y + BOTTOM_PAD);
+    // Cap the rendered height (autoHeight grows to content, bounded by maxHeight;
+    // otherwise the host's height), and scroll the lanes when content overflows.
+    const cap = this.opts.maxHeight;
+    const effectiveHeight = this.opts.autoHeight
+      ? cap != null
+        ? Math.max(96, Math.min(contentHeight, cap))
+        : contentHeight
+      : Math.max(96, this.hostHeight);
+    const maxScrollY = Math.max(0, contentHeight - effectiveHeight);
     return {
       mode,
       gutter,
       plotLeft: gutter,
       plotWidth: Math.max(1, this.width - gutter),
       contentHeight,
+      effectiveHeight,
+      maxScrollY,
       laneAreaTop: LANE_AREA_TOP,
       rows,
       flatTop: 0,
@@ -397,9 +454,12 @@ export class Timeline {
     this.layout = this.computeLayout();
 
     const useAuto = this.layout.mode === 'swimlane' && this.opts.autoHeight;
-    this.height = useAuto ? this.layout.contentHeight : Math.max(96, this.hostHeight);
+    this.height = this.layout.effectiveHeight;
     this.applyHostHeight(useAuto ? this.height : null);
     this.applySvgSize();
+
+    this.scrollY = Math.max(0, Math.min(this.scrollY, this.layout.maxScrollY));
+    this.updateScrollTransform();
 
     this.renderLanes();
     this.renderTicks();
@@ -407,7 +467,42 @@ export class Timeline {
     this.renderEvents();
     this.renderGutter();
     this.renderCursor();
+    this.renderScrollbar();
     this.emit('rangeChange', { start: this.viewStart, end: this.viewEnd });
+  }
+
+  /** Position the lane-clip viewport and the scroll translation. */
+  private updateScrollTransform() {
+    const top = this.layout.laneAreaTop;
+    this.clipRect.setAttribute('x', '0');
+    this.clipRect.setAttribute('y', String(top));
+    this.clipRect.setAttribute('width', String(this.width));
+    this.clipRect.setAttribute('height', String(Math.max(0, this.height - top)));
+    this.gScrollInner.setAttribute('transform', `translate(0, ${-this.scrollY})`);
+  }
+
+  private renderScrollbar() {
+    clear(this.gScrollbar);
+    if (this.layout.maxScrollY <= 0) return;
+    const top = this.layout.laneAreaTop;
+    const viewH = this.height - top;
+    const contentH = this.layout.contentHeight - top;
+    const x = this.width - 5;
+    this.gScrollbar.append(
+      svgEl('rect', { x, y: top, width: 3, height: viewH, rx: 1.5, class: 'timelin-scrolltrack' }),
+    );
+    const thumbH = Math.max(24, (viewH * viewH) / contentH);
+    const thumbY = top + (this.scrollY / this.layout.maxScrollY) * (viewH - thumbH);
+    this.gScrollbar.append(
+      svgEl('rect', { x: x - 1, y: thumbY, width: 5, height: thumbH, rx: 2.5, class: 'timelin-scrollthumb' }),
+    );
+  }
+
+  private setScroll(y: number) {
+    const clamped = Math.max(0, Math.min(y, this.layout.maxScrollY));
+    if (clamped === this.scrollY) return;
+    this.scrollY = clamped;
+    this.recompute();
   }
 
   private renderLanes() {
@@ -495,7 +590,8 @@ export class Timeline {
           'shape-rendering': 'crispEdges',
         }),
       );
-      if (t.label !== undefined) {
+      // Skip the leftmost label so it doesn't bleed across the gutter divider.
+      if (t.label !== undefined && t.x >= this.layout.plotLeft + 14) {
         this.gLabels.append(
           svgEl(
             'text',
@@ -515,7 +611,9 @@ export class Timeline {
   private renderEras() {
     clear(this.gEras);
     const top = this.layout.laneAreaTop;
-    const lineBottom = this.height - 6;
+    // Eras live in the scrolled group: span the full content so the line keeps
+    // filling the viewport at any scroll offset.
+    const lineBottom = this.layout.contentHeight - 6;
 
     this.eras.forEach((e, i) => {
       if (e.year < this.viewStart || e.year > this.viewEnd) return;
@@ -657,15 +755,17 @@ export class Timeline {
 
   private renderGutter() {
     clear(this.gGutter);
+    clear(this.gGutterBg);
     if (this.layout.mode !== 'swimlane' || this.layout.gutter <= 0) return;
     const gutter = this.layout.gutter;
 
-    // Opaque gutter background masks any tick/label bleed.
-    this.gGutter.append(
+    // Opaque gutter background + divider are fixed (don't scroll).
+    this.gGutterBg.append(
       svgEl('rect', { x: 0, y: 0, width: gutter, height: this.height, class: 'timelin-gutter-bg' }),
       svgEl('line', { x1: gutter, x2: gutter, y1: 0, y2: this.height, class: 'timelin-gutter-divider' }),
     );
 
+    // Per-lane accents, labels and hit areas scroll with the lanes (content coords).
     const maxChars = Math.max(3, Math.floor((gutter - 22) / 6.2));
     for (const row of this.layout.rows) {
       const cy = row.top + row.height / 2;
@@ -763,11 +863,13 @@ export class Timeline {
   private showEventTooltip(ev: TimelineEvent, x: number, anchorY: number) {
     this.hoveredEvent = ev.id;
     this.renderEvents();
+    // anchorY is a content coordinate; the lane content is scrolled by scrollY.
+    const viewportY = Math.max(this.layout.laneAreaTop, anchorY - this.scrollY);
     this.fillTooltip(
       formatYearRange(ev.year, ev.endYear),
       ev.description ? `${ev.title} — ${ev.description}` : ev.title,
       x,
-      anchorY,
+      viewportY,
     );
   }
 
@@ -813,36 +915,66 @@ export class Timeline {
 
   private onPointerDown = (ev: PointerEvent) => {
     (ev.currentTarget as Element).setPointerCapture?.(ev.pointerId);
-    const lx = this.localX(ev);
+    const rect = this.svg.getBoundingClientRect();
+    const lx = ev.clientX - rect.left;
+    const ly = ev.clientY - rect.top;
+
+    // Vertical scrollbar (right edge) takes priority when the lanes overflow.
+    if (this.layout.maxScrollY > 0 && lx >= this.width - 12) {
+      this.scrollbarDrag = true;
+      this.scrollStartPointer = ev.clientY;
+      this.scrollStartY = this.scrollY;
+      return;
+    }
     if (this.layout.mode === 'swimlane' && lx < this.layout.plotLeft) {
       this.gutterDown = true;
-      this.gutterDownY = ev.clientY - this.svg.getBoundingClientRect().top;
+      this.gutterDownY = ly;
       return;
     }
     this.dragging = true;
     this.dragMoved = false;
     this.dragStartX = ev.clientX;
+    this.dragStartY = ev.clientY;
+    this.dragStartScrollY = this.scrollY;
     this.dragStartView = [this.viewStart, this.viewEnd];
   };
 
   private onPointerMove = (ev: PointerEvent) => {
+    if (this.scrollbarDrag) {
+      const top = this.layout.laneAreaTop;
+      const viewH = this.height - top;
+      const contentH = this.layout.contentHeight - top;
+      const thumbH = Math.max(24, (viewH * viewH) / contentH);
+      const ratio = (ev.clientY - this.scrollStartPointer) / Math.max(1, viewH - thumbH);
+      this.setScroll(this.scrollStartY + ratio * this.layout.maxScrollY);
+      return;
+    }
     if (!this.dragging) return;
     const dx = ev.clientX - this.dragStartX;
-    if (Math.abs(dx) > 3) this.dragMoved = true;
+    const dyPx = ev.clientY - this.dragStartY;
+    if (Math.abs(dx) > 3 || Math.abs(dyPx) > 3) this.dragMoved = true;
+
+    // Horizontal drag pans time; vertical drag scrolls the lanes (2D pan).
     const span = this.dragStartView[1] - this.dragStartView[0];
-    const dy = (-dx / this.layout.plotWidth) * span;
-    this.viewStart = this.dragStartView[0] + dy;
-    this.viewEnd = this.dragStartView[1] + dy;
+    const shift = (-dx / this.layout.plotWidth) * span;
+    this.viewStart = this.dragStartView[0] + shift;
+    this.viewEnd = this.dragStartView[1] + shift;
+    if (this.layout.maxScrollY > 0) {
+      this.scrollY = Math.max(0, Math.min(this.dragStartScrollY - dyPx, this.layout.maxScrollY));
+    }
     this.recompute();
   };
 
   private onPointerUp = (ev: PointerEvent) => {
+    if (this.scrollbarDrag) {
+      this.scrollbarDrag = false;
+      return;
+    }
     if (this.gutterDown) {
       this.gutterDown = false;
-      // Click in the gutter: emit the group under the pointer.
-      const row = this.layout.rows.find(
-        (r) => r.group && this.gutterDownY >= r.top && this.gutterDownY <= r.top + r.height,
-      );
+      // Click in the gutter: emit the group under the pointer (scroll-adjusted).
+      const y = this.gutterDownY + this.scrollY;
+      const row = this.layout.rows.find((r) => r.group && y >= r.top && y <= r.top + r.height);
       if (row?.group) this.emit('groupSelect', row.group);
       return;
     }
@@ -857,6 +989,14 @@ export class Timeline {
   };
 
   private onWheel = (ev: WheelEvent) => {
+    // Shift-wheel (or a horizontal wheel) scrolls the lanes when they overflow.
+    if (this.layout.maxScrollY > 0 && (ev.shiftKey || Math.abs(ev.deltaX) > Math.abs(ev.deltaY))) {
+      ev.preventDefault();
+      const d = Math.abs(ev.deltaY) > Math.abs(ev.deltaX) ? ev.deltaY : ev.deltaX;
+      this.setScroll(this.scrollY + d);
+      return;
+    }
+    // Otherwise zoom the time axis.
     ev.preventDefault();
     const cx = Math.max(this.layout.plotLeft, this.localX(ev));
     const span = this.viewEnd - this.viewStart;
@@ -1041,6 +1181,20 @@ export class Timeline {
       const value = theme[key];
       if (value !== undefined) this.root.style.setProperty(THEME_VARS[key], value);
     }
+  }
+
+  /**
+   * Cap the rendered height (with `autoHeight`); when the lanes are taller, they
+   * scroll vertically with the time axis pinned. Pass `undefined` to remove the cap.
+   */
+  setMaxHeight(h: number | undefined) {
+    this.opts.maxHeight = h;
+    this.recompute();
+  }
+
+  /** Scroll the lanes to an absolute vertical offset (clamped). */
+  scrollTo(y: number) {
+    this.setScroll(y);
   }
 
   resize() {

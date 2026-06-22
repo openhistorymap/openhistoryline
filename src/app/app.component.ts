@@ -1,4 +1,4 @@
-import { AfterViewInit, Component, ViewChild } from '@angular/core';
+import { AfterViewInit, Component, ElementRef, NgZone, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TimelinTimelineComponent } from '@openhistorymap/timeline-angular';
@@ -29,6 +29,11 @@ export type GroupMode = 'layer' | 'country' | 'layer-country';
 })
 export class AppComponent implements AfterViewInit {
   @ViewChild(TimelinTimelineComponent) private tl?: TimelinTimelineComponent;
+  @ViewChild('stage', { static: true }) private stageRef!: ElementRef<HTMLElement>;
+
+  /** Cap the timeline at the stage height; taller lane stacks scroll internally. */
+  stageHeight = 420;
+  private stageObs?: ResizeObserver;
 
   readonly categories = CATEGORIES;
   dynamicLayers: Layer[] = [];
@@ -64,11 +69,23 @@ export class AppComponent implements AfterViewInit {
   searching = false;
   private searchTimer?: ReturnType<typeof setTimeout>;
 
+  constructor(private zone: NgZone) {}
+
   ngAfterViewInit(): void {
+    this.measureStage();
+    if (typeof ResizeObserver !== 'undefined') {
+      this.stageObs = new ResizeObserver(() => this.zone.run(() => this.measureStage()));
+      this.stageObs.observe(this.stageRef.nativeElement);
+    }
     // Open on the headline composition: famines & droughts beside wars.
     const defaults = ['famine', 'wars'];
     defaults.forEach((id) => this.active.add(id));
     Promise.all(defaults.map((id) => this.ensureLoaded(this.byId(id)))).then(() => this.recompose(true));
+  }
+
+  private measureStage(): void {
+    const h = this.stageRef?.nativeElement.clientHeight;
+    if (h && Math.abs(h - this.stageHeight) > 1) this.stageHeight = h;
   }
 
   layersIn(category: string): Layer[] {

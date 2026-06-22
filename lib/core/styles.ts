@@ -108,6 +108,16 @@ export const CSS = `
 .timelin-group-label.clickable { fill: var(--timelin-ink); }
 .timelin-group-hit { fill: transparent; cursor: pointer; }
 
+/* SCROLLBAR --------------------------------------------------------------- */
+.timelin-scrolltrack { fill: var(--timelin-hairline); opacity: 0.4; }
+.timelin-scrollthumb {
+  fill: var(--timelin-hairline-bright);
+  cursor: grab;
+  transition: fill 140ms linear;
+}
+.timelin-scrollthumb:hover { fill: var(--timelin-brass-soft); }
+.timelin-scrollthumb:active { cursor: grabbing; fill: var(--timelin-brass); }
+
 /* ERAS -------------------------------------------------------------------- */
 .timelin-era-line {
   stroke: var(--timelin-hairline-bright);

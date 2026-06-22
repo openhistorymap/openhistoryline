@@ -85,10 +85,11 @@
         <span class="tb-hint" *ngIf="groupMode !== 'layer'">colour = type</span>
       </div>
 
-      <div class="stage">
+      <div class="stage" #stage>
         <timelin-timeline
           [year]="year"
           [groupGutter]="156"
+          [maxHeight]="stageHeight"
           (yearChange)="year = $event"
           (eventSelect)="onEvent($event)"
           (groupSelect)="onGroup($event)"
