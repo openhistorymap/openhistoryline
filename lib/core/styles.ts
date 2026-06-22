@@ -248,6 +248,24 @@ export const CSS = `
   transform: translateX(-50%) rotate(45deg);
 }
 
+/* Flipped variant: opens downward when there's no room above the top edge. */
+.timelin-tooltip.down {
+  transform: translate(-50%, 16px);
+  animation: timelin-fade-in-down 160ms var(--timelin-ease-out);
+}
+@keyframes timelin-fade-in-down {
+  from { opacity: 0; transform: translate(-50%, 10px); }
+  to   { opacity: 1; transform: translate(-50%, 16px); }
+}
+.timelin-tooltip.down .tail {
+  bottom: auto;
+  top: -6px;
+  border-right: none;
+  border-bottom: none;
+  border-left: 1px solid var(--timelin-hairline-bright);
+  border-top: 1px solid var(--timelin-hairline-bright);
+}
+
 @media (max-width: 640px) {
   .timelin-readout .anno { font-size: 7px; }
   .timelin-readout .plain { font-size: 11px; }

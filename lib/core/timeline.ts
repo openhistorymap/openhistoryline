@@ -888,9 +888,14 @@ export class Timeline {
     tail.className = 'tail';
     tail.setAttribute('aria-hidden', 'true');
     this.tooltip.append(card, tail);
+    this.tooltip.classList.remove('down');
     this.tooltip.style.left = `${x}px`;
     this.tooltip.style.top = `${anchorY}px`;
     this.tooltip.style.display = '';
+    // Open upward by default; flip downward when there isn't room above the top
+    // edge (so the tooltip never spills past the timeline into the chrome above).
+    const h = this.tooltip.offsetHeight;
+    if (h > 0 && anchorY - h - 16 < 0) this.tooltip.classList.add('down');
   }
 
   private hideTooltip() {
