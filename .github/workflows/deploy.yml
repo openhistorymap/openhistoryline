@@ -28,14 +28,16 @@ jobs:
 
       - run: npm install
 
+      # Default serves at the project path (www.openhistorymap.org/openhistoryline/).
+      # For a custom domain pointed at GitHub Pages, set repo var BASE_HREF=/ and
+      # add the domain (+ a CNAME file) once its DNS resolves to GitHub.
       - name: Build
-        run: npx ng build --configuration production --base-href "${{ vars.BASE_HREF || '/' }}"
+        run: npx ng build --configuration production --base-href "${{ vars.BASE_HREF || '/openhistoryline/' }}"
 
-      - name: SPA fallbacks + custom domain
+      - name: SPA fallback
         run: |
           cp dist/openhistoryline/browser/index.html dist/openhistoryline/browser/404.html
           printf '/*    /index.html   200\n' > dist/openhistoryline/browser/_redirects
-          echo 'ohm.openhistoryline.org' > dist/openhistoryline/browser/CNAME
 
       - uses: actions/upload-pages-artifact@v3
         with:
