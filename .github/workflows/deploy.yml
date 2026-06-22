@@ -29,12 +29,13 @@ jobs:
       - run: npm install
 
       - name: Build
-        run: npx ng build --configuration production --base-href "${{ vars.BASE_HREF || '/openhistoryline/' }}"
+        run: npx ng build --configuration production --base-href "${{ vars.BASE_HREF || '/' }}"
 
-      - name: SPA fallbacks
+      - name: SPA fallbacks + custom domain
         run: |
           cp dist/openhistoryline/browser/index.html dist/openhistoryline/browser/404.html
           printf '/*    /index.html   200\n' > dist/openhistoryline/browser/_redirects
+          echo 'ohm.openhistoryline.org' > dist/openhistoryline/browser/CNAME
 
       - uses: actions/upload-pages-artifact@v3
         with:
