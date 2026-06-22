@@ -5,7 +5,11 @@ import { TimelinTimelineComponent } from '@openhistorymap/timeline-angular';
 import { formatYearRange, type TimelineEvent, type TimelineGroup } from '@openhistorymap/timeline-core';
 import {
   CATEGORIES,
+  CUSTOM_QUERY_EXAMPLE,
+  CUSTOM_QUERY_FOOTER,
+  CUSTOM_QUERY_HEADER,
   LAYERS,
+  customLayer,
   entityLayer,
   eventCountry,
   fetchWikidataInfo,
@@ -68,6 +72,16 @@ export class AppComponent implements AfterViewInit {
   searchOpen = false;
   searching = false;
   private searchTimer?: ReturnType<typeof setTimeout>;
+
+  /* custom-query modal */
+  readonly customHeader = CUSTOM_QUERY_HEADER;
+  readonly customFooter = CUSTOM_QUERY_FOOTER;
+  customOpen = false;
+  customName = '';
+  customBody = CUSTOM_QUERY_EXAMPLE;
+  customError = '';
+  customRunning = false;
+  private customIndex = 0;
 
   constructor(private zone: NgZone) {}
 
@@ -364,6 +378,44 @@ export class AppComponent implements AfterViewInit {
     this.counts.delete(l.id);
     this.dynamicLayers = this.dynamicLayers.filter((d) => d.id !== l.id);
     this.recompose(false);
+  }
+
+  /* custom query */
+  openCustom(): void {
+    this.customError = '';
+    this.customOpen = true;
+  }
+  closeCustom(): void {
+    this.customOpen = false;
+  }
+
+  async runCustom(): Promise<void> {
+    if (!this.customBody.trim()) {
+      this.customError = 'The query body is empty.';
+      return;
+    }
+    this.customError = '';
+    this.customRunning = true;
+    const layer = customLayer(this.customName, this.customBody, this.customIndex++);
+    this.dynamicLayers.push(layer);
+    this.active.add(layer.id);
+    await this.ensureLoaded(layer);
+    this.customRunning = false;
+
+    if (!this.cache.has(layer.id)) {
+      this.customError = this.status; // ensureLoaded set the error message
+      this.active.delete(layer.id);
+      this.dynamicLayers = this.dynamicLayers.filter((d) => d.id !== layer.id);
+      return;
+    }
+    if (!this.counts.get(layer.id)) {
+      this.customError = 'The query ran but returned no dated events. Check that it binds ?item.';
+      this.active.delete(layer.id);
+      this.dynamicLayers = this.dynamicLayers.filter((d) => d.id !== layer.id);
+      return;
+    }
+    this.recompose(true);
+    this.closeCustom();
   }
 
   closeSearch(): void {

@@ -26,30 +26,51 @@ export interface Layer {
   dynamic?: boolean;
 }
 
-/** Format a (possibly BCE) year as a WDQS xsd:dateTime literal. */
-function iso(year: number): string {
-  const sign = year < 0 ? '-' : '+';
-  return `${sign}${Math.abs(year).toString().padStart(4, '0')}-01-01T00:00:00Z`;
-}
-
-/** Dated items whose `instance of` is one of `classes`, point-in-time or start/end. */
-function classQuery(classes: string[], from = -3000, to = 2031, limit = 1000): string {
-  const values = classes.map((q) => `wd:${q}`).join(' ');
-  return `SELECT ?item ?itemLabel ?itemDescription ?date ?endDate ?classLabel ?countryLabel WHERE {
-  VALUES ?class { ${values} }
-  ?item wdt:P31 ?class .
-  OPTIONAL { ?item wdt:P585 ?pit. }
+/**
+ * The fixed scaffold wrapped around a user's custom query body. The user edits
+ * only `CUSTOM_QUERY_BODY` (the triple patterns + filters that bind `?item` and,
+ * optionally, `?class`); everything that makes the output adapter-compatible —
+ * the SELECT columns, the date/end binding, the country and the label service —
+ * is fixed.
+ */
+export const CUSTOM_QUERY_HEADER =
+  'SELECT ?item ?itemLabel ?itemDescription ?date ?endDate ?classLabel ?countryLabel WHERE {';
+export const CUSTOM_QUERY_FOOTER = `  OPTIONAL { ?item wdt:P585 ?pit. }
   OPTIONAL { ?item wdt:P580 ?st. }
   OPTIONAL { ?item wdt:P582 ?et. }
   BIND(COALESCE(?pit, ?st) AS ?date)
   BIND(?et AS ?endDate)
   FILTER(BOUND(?date))
-  FILTER(?date >= "${iso(from)}"^^xsd:dateTime && ?date < "${iso(to)}"^^xsd:dateTime)
   OPTIONAL { ?item wdt:P17 ?country. }
   SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
 }
 ORDER BY ?date
-LIMIT ${limit}`;
+LIMIT 600`;
+
+/** A starter body shown in the custom-query editor. */
+export const CUSTOM_QUERY_EXAMPLE = `  # bind ?item (and optionally ?class for the lane/colour label)
+  ?item wdt:P31 ?class .
+  VALUES ?class { wd:Q3024240 }     # e.g. historical country
+  ?item wdt:P30 wd:Q46 .            # located in Europe
+  # add your own FILTERs here`;
+
+/** Assemble a complete, adapter-compatible SPARQL query from an editable body. */
+export function wrapCustomQuery(body: string): string {
+  return `${CUSTOM_QUERY_HEADER}\n${body.trim()}\n${CUSTOM_QUERY_FOOTER}`;
+}
+
+/** A removable layer that runs a user's custom query body live against WDQS. */
+export function customLayer(name: string, body: string, index: number): Layer {
+  const sparql = wrapCustomQuery(body);
+  return {
+    id: `custom:${index}`,
+    label: name.trim() || 'Custom query',
+    category: 'Custom',
+    source: 'Wikidata',
+    color: DYNAMIC_COLORS[index % DYNAMIC_COLORS.length],
+    dynamic: true,
+    load: () => fetchWikidataEvents({ sparql, mapping: { description: 'classLabel' } }),
+  };
 }
 
 /**
@@ -60,34 +81,31 @@ LIMIT ${limit}`;
 export function eventCountry(e: TimelineEvent): string | undefined {
   const d = e.data as
     | (Record<string, { value?: string }> & {
+        country?: string;
         spatialCoverageDescription?: string;
         spatialCoverage?: { label?: string }[];
       })
     | undefined;
   if (!d) return undefined;
+  if (d.country) return d.country; // cached/normalized events
   const cl = (d as Record<string, { value?: string }>)['countryLabel'];
-  if (cl?.value && !/^Q\d+$/.test(cl.value)) return cl.value;
+  if (cl?.value && !/^Q\d+$/.test(cl.value)) return cl.value; // live SPARQL binding
   if (d.spatialCoverageDescription) return d.spatialCoverageDescription;
   if (Array.isArray(d.spatialCoverage) && d.spatialCoverage[0]?.label) return d.spatialCoverage[0].label;
   return undefined;
 }
 
-/** A Wikidata class layer: tooltip carries the precise class via the description. */
-function wd(
-  id: string,
-  label: string,
-  category: string,
-  color: string,
-  classes: string[],
-): Layer {
-  return {
-    id,
-    label,
-    category,
-    source: 'Wikidata',
-    color,
-    load: () => fetchWikidataEvents({ sparql: classQuery(classes), mapping: { description: 'classLabel' } }),
-  };
+/** Load a cached layer's events from a baked JSON file (regenerated monthly). */
+async function loadLayerJson(id: string): Promise<TimelineEvent[]> {
+  const url = new URL(`layers/${id}.json`, document.baseURI).href;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`cached layer “${id}” unavailable (${res.status})`);
+  return (await res.json()) as TimelineEvent[];
+}
+
+/** A curated Wikidata layer, served from cached JSON (see scripts/build_layers.py). */
+function cached(id: string, label: string, category: string, color: string): Layer {
+  return { id, label, category, source: 'Wikidata', color, load: () => loadLayerJson(id) };
 }
 
 /** A PeriodO region layer (a single lane of period definitions). */
@@ -103,38 +121,23 @@ function po(id: string, label: string, color: string, region: string): Layer {
 }
 
 export const LAYERS: Layer[] = [
-  // Conflict
-  wd('wars', 'Wars', 'Conflict', 'oklch(0.66 0.14 28)', ['Q198']),
-  wd('battles', 'Battles & sieges', 'Conflict', 'oklch(0.70 0.13 45)', ['Q178561', 'Q188055']),
-  wd('revolts', 'Revolutions & coups', 'Conflict', 'oklch(0.64 0.13 12)', ['Q10931', 'Q45382', 'Q124734']),
+  // Conflict (cached Wikidata)
+  cached('wars', 'Wars', 'Conflict', 'oklch(0.66 0.14 28)'),
+  cached('battles', 'Battles & sieges', 'Conflict', 'oklch(0.70 0.13 45)'),
+  cached('revolts', 'Revolutions & coups', 'Conflict', 'oklch(0.64 0.13 12)'),
 
-  // Nature & climate
-  wd('famine', 'Famines & droughts', 'Nature & climate', 'oklch(0.74 0.11 92)', ['Q168247', 'Q43059']),
-  wd('plague', 'Pandemics & epidemics', 'Nature & climate', 'oklch(0.71 0.12 150)', ['Q12184', 'Q44512']),
-  wd('quake', 'Earthquakes', 'Nature & climate', 'oklch(0.68 0.10 62)', ['Q7944']),
-  wd('eruption', 'Volcanic eruptions', 'Nature & climate', 'oklch(0.67 0.14 35)', ['Q7692360']),
-  wd('flood', 'Floods', 'Nature & climate', 'oklch(0.70 0.11 232)', ['Q8068']),
+  // Nature & climate (cached Wikidata)
+  cached('famine', 'Famines & droughts', 'Nature & climate', 'oklch(0.74 0.11 92)'),
+  cached('plague', 'Pandemics & epidemics', 'Nature & climate', 'oklch(0.71 0.12 150)'),
+  cached('quake', 'Earthquakes', 'Nature & climate', 'oklch(0.68 0.10 62)'),
+  cached('eruption', 'Volcanic eruptions', 'Nature & climate', 'oklch(0.67 0.14 35)'),
+  cached('flood', 'Floods', 'Nature & climate', 'oklch(0.70 0.11 232)'),
 
-  // Society
-  wd('treaties', 'Treaties', 'Society', 'oklch(0.71 0.10 320)', ['Q625298']),
-  {
-    id: 'emperors',
-    label: 'Roman emperors',
-    category: 'Society',
-    source: 'Wikidata',
-    color: 'oklch(0.74 0.115 78)',
-    load: () =>
-      fetchWikidataEvents({
-        sparql: `SELECT ?item ?itemLabel ?date ?endDate WHERE {
-          ?item p:P39 ?st . ?st ps:P39 wd:Q842606 .
-          OPTIONAL { ?st pq:P580 ?date. } OPTIONAL { ?st pq:P582 ?endDate. }
-          FILTER(BOUND(?date))
-          SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
-        } ORDER BY ?date LIMIT 250`,
-      }),
-  },
+  // Society (cached Wikidata)
+  cached('treaties', 'Treaties', 'Society', 'oklch(0.71 0.10 320)'),
+  cached('emperors', 'Roman emperors', 'Society', 'oklch(0.74 0.115 78)'),
 
-  // Periods
+  // Periods (live PeriodO — a static CDN dump, not rate-limited)
   po('po-greece', 'Periods · Greece', 'oklch(0.70 0.11 200)', 'Greece'),
   po('po-levant', 'Periods · Levant', 'oklch(0.69 0.10 172)', 'Levant'),
   po('po-italy', 'Periods · Italy', 'oklch(0.71 0.11 138)', 'Italy'),

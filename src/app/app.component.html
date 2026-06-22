@@ -35,8 +35,10 @@
         <button class="clear" *ngIf="active.size" (click)="clearAll()">clear</button>
       </div>
 
+      <button class="custom-btn" (click)="openCustom()">+ Custom SPARQL layer</button>
+
       <ng-container *ngIf="dynamicLayers.length">
-        <h3 class="cat">Search</h3>
+        <h3 class="cat">Your layers</h3>
         <div class="layer dynamic" *ngFor="let l of dynamicLayers" [class.active]="active.has(l.id)">
           <button class="layer-main" (click)="toggle(l)" [style.--c]="l.color">
             <span class="dot"></span>
@@ -103,6 +105,52 @@
         </div>
       </div>
     </main>
+
+    <div class="modal-scrim" *ngIf="customOpen" (click)="closeCustom()"></div>
+    <section class="custom-modal" *ngIf="customOpen">
+      <header class="cm-head">
+        <h2>Custom SPARQL layer</h2>
+        <button class="dp-close" (click)="closeCustom()" title="Close">✕</button>
+      </header>
+      <p class="cm-hint">
+        Write only the query body — the triple patterns and filters that bind
+        <code>?item</code> (and optionally <code>?class</code> for the lane label). The
+        <code>SELECT</code>, dates, country and labels are fixed so the result stays compatible.
+      </p>
+
+      <label class="cm-label" for="cm-name">Layer name</label>
+      <input id="cm-name" class="cm-name" type="text" [(ngModel)]="customName" placeholder="My query" />
+
+      <div class="cm-query">
+        <pre class="cm-fixed">{{ customHeader }}</pre>
+        <textarea
+          class="cm-body"
+          [(ngModel)]="customBody"
+          spellcheck="false"
+          rows="7"
+          aria-label="Query body"
+        ></textarea>
+        <pre class="cm-fixed">{{ customFooter }}</pre>
+      </div>
+
+      <p class="cm-error" *ngIf="customError">{{ customError }}</p>
+
+      <div class="cm-actions">
+        <a
+          class="cm-wdqs"
+          href="https://query.wikidata.org/"
+          target="_blank"
+          rel="noopener"
+          >open WDQS ↗</a
+        >
+        <span class="spacer"></span>
+        <button class="cm-cancel" (click)="closeCustom()">Cancel</button>
+        <button class="cm-run" [disabled]="customRunning" (click)="runCustom()">
+          <span class="spin" *ngIf="customRunning"></span>
+          {{ customRunning ? 'Running…' : 'Run & add layer' }}
+        </button>
+      </div>
+    </section>
 
     <aside class="detail-panel" *ngIf="panelOpen && selected">
       <button class="dp-close" (click)="closePanel()" title="Close">✕</button>

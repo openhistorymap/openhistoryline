@@ -61,9 +61,21 @@ GitHub Pages via `.github/workflows/deploy.yml` (Angular build → SPA fallback 
 `BASE_HREF` repo variable (default `/openhistoryline/`). For the custom domain
 `ohm.openhistoryline.org`, set `BASE_HREF=/`, add a `CNAME` file, and point DNS.
 
-## Data notes
+## Data
 
-- Wikidata queries hit the public WDQS endpoint (CORS-enabled); broad searches
-  (e.g. a whole country) can be slow — queries are `LIMIT`-ed to 400.
-- PeriodO years are ISO-8601; the adapter aligns BCE labels (see timel.in docs).
+- **Curated layers are cached** to `public/layers/<id>.json` (the app's normalized
+  event shape), so they load instantly with **no WDQS rate limits**. Regenerate
+  them whenever you like — say, monthly — and commit the result:
+  ```bash
+  python3 scripts/build_layers.py     # → public/layers/*.json (~860 KB)
+  ```
+  Add/remove a cached layer by editing both `CLASS_LAYERS` in that script and the
+  `cached(...)` entries in `src/app/data.ts`.
+- **PeriodO layers stay live** (a static CDN dump, not rate-limited).
+- **Free search** (`wbsearchentities`) and the **Custom SPARQL layer** run live
+  against Wikidata.
+- **Custom queries**: the panel lets you edit only the query *body* (the patterns
+  that bind `?item` / `?class` and your `FILTER`s). The app wraps it in a fixed
+  `SELECT … BIND(date) … wikibase:label …` so the result is always
+  adapter-compatible — see `wrapCustomQuery` in `src/app/data.ts`.
 - Credentials: none. Everything is public, read-only, client-side.
