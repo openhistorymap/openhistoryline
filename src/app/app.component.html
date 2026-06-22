@@ -73,6 +73,18 @@
     </aside>
 
     <main class="main">
+      <div class="toolbar">
+        <span class="tb-label">Group by</span>
+        <div class="seg">
+          <button [class.on]="groupMode === 'layer'" (click)="setGroupMode('layer')">Type</button>
+          <button [class.on]="groupMode === 'country'" (click)="setGroupMode('country')">Country</button>
+          <button [class.on]="groupMode === 'layer-country'" (click)="setGroupMode('layer-country')">
+            Type + Country
+          </button>
+        </div>
+        <span class="tb-hint" *ngIf="groupMode !== 'layer'">colour = type</span>
+      </div>
+
       <div class="stage">
         <timelin-timeline
           [year]="year"

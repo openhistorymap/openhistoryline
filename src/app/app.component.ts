@@ -7,6 +7,7 @@ import {
   CATEGORIES,
   LAYERS,
   entityLayer,
+  eventCountry,
   fetchWikidataInfo,
   placesFromData,
   qidFromUrl,
@@ -16,6 +17,8 @@ import {
   type PlaceRef,
   type WikidataInfo,
 } from './data';
+
+export type GroupMode = 'layer' | 'country' | 'layer-country';
 
 @Component({
   selector: 'ohl-root',
@@ -40,6 +43,11 @@ export class AppComponent implements AfterViewInit {
   totalEvents = 0;
   year = 1000;
   status = 'Switch on layers to compose a timeline.';
+
+  /** Which facet defines the swimlanes. */
+  groupMode: GroupMode = 'layer';
+  private static readonly COUNTRY_CAP = 16;
+  private static readonly PER_LAYER_CAP = 6;
 
   /* detail panel */
   selected: TimelineEvent | null = null;
@@ -111,20 +119,113 @@ export class AppComponent implements AfterViewInit {
     }
   }
 
+  setGroupMode(m: GroupMode): void {
+    if (this.groupMode === m) return;
+    this.groupMode = m;
+    this.recompose(false);
+  }
+
   private recompose(fit: boolean): void {
     const tl = this.tl?.instance;
     if (!tl) return;
     const layers = this.activeLayers();
+
+    // Events are always coloured by their layer (type), so when grouping by
+    // country you still read wars vs droughts by colour within a country lane.
     const events: TimelineEvent[] = [];
-    for (const l of layers) for (const e of this.cache.get(l.id) ?? []) events.push({ ...e, group: l.id });
-    const groups: TimelineGroup[] = layers.map((l, i) => ({ id: l.id, label: l.label, color: l.color, order: i }));
+    for (const l of layers) {
+      for (const raw of this.cache.get(l.id) ?? []) {
+        const e: TimelineEvent = { ...raw, color: l.color };
+        if (this.groupMode === 'layer') {
+          e.group = l.id;
+        } else {
+          const country = eventCountry(raw) ?? 'Other';
+          e.group = this.groupMode === 'country' ? `c:${country}` : `${l.id}::${country}`;
+        }
+        events.push(e);
+      }
+    }
+
+    const groups = this.buildGroups(events, layers);
     tl.setGroups(groups);
     tl.setEvents(events);
     this.totalEvents = events.length;
     if (fit) this.fitToActive();
     this.status = layers.length
-      ? `${layers.length} layer${layers.length > 1 ? 's' : ''} · ${events.length} events`
+      ? `${layers.length} layer${layers.length > 1 ? 's' : ''} · ${events.length} events · ${groups.length} lanes`
       : 'No layers active — switch some on to compose a timeline.';
+  }
+
+  /** Build the swimlane definitions for the current grouping mode, capping lane count. */
+  private buildGroups(events: TimelineEvent[], layers: Layer[]): TimelineGroup[] {
+    if (this.groupMode === 'layer') {
+      return layers
+        .filter((l) => events.some((e) => e.group === l.id))
+        .map((l, i) => ({ id: l.id, label: l.label, color: l.color, order: i }));
+    }
+
+    if (this.groupMode === 'country') {
+      const counts = new Map<string, number>();
+      for (const e of events) counts.set(e.group!, (counts.get(e.group!) ?? 0) + 1);
+      const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+      const keep = new Set(
+        ranked
+          .map(([id]) => id)
+          .filter((id) => id !== 'c:Other')
+          .slice(0, AppComponent.COUNTRY_CAP),
+      );
+      let hasOther = false;
+      for (const e of events)
+        if (!keep.has(e.group!)) {
+          e.group = 'c:Other';
+          hasOther = true;
+        }
+      const ordered = ranked.filter(([id]) => keep.has(id)).map(([id]) => id);
+      if (hasOther) ordered.push('c:Other');
+      return ordered.map((id, i) => ({ id, label: id.slice(2), color: undefined, order: i }));
+    }
+
+    // layer-country composite: `${layerId}::${country}` — blocks of country lanes per layer.
+    const split = (id: string): [string, string] => {
+      const i = id.indexOf('::');
+      return [id.slice(0, i), id.slice(i + 2)];
+    };
+    const perLayer = new Map<string, Map<string, number>>();
+    for (const e of events) {
+      const [lid, country] = split(e.group!);
+      const m = perLayer.get(lid) ?? new Map<string, number>();
+      m.set(country, (m.get(country) ?? 0) + 1);
+      perLayer.set(lid, m);
+    }
+    const keep = new Set<string>();
+    for (const l of layers) {
+      const m = perLayer.get(l.id);
+      if (!m) continue;
+      [...m.entries()]
+        .filter(([c]) => c !== 'Other')
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, AppComponent.PER_LAYER_CAP)
+        .forEach(([c]) => keep.add(`${l.id}::${c}`));
+    }
+    for (const e of events) {
+      if (!keep.has(e.group!)) {
+        const [lid] = split(e.group!);
+        e.group = `${lid}::Other`;
+      }
+    }
+    const groups: TimelineGroup[] = [];
+    let order = 0;
+    for (const l of layers) {
+      const m = new Map<string, number>();
+      for (const e of events) {
+        const [lid, c] = split(e.group!);
+        if (lid === l.id) m.set(c, (m.get(c) ?? 0) + 1);
+      }
+      [...m.entries()]
+        .sort((a, b) => (a[0] === 'Other' ? 1 : b[0] === 'Other' ? -1 : b[1] - a[1]))
+        .forEach(([c]) => groups.push({ id: `${l.id}::${c}`, label: c, color: l.color, order: order++ }));
+    }
+    return groups;
   }
 
   private fitToActive(): void {

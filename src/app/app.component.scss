@@ -251,6 +251,53 @@
   flex-direction: column;
   min-width: 0;
 }
+.toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--ground-deep);
+}
+.toolbar .tb-label {
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.toolbar .seg {
+  display: flex;
+  border: 1px solid var(--hairline);
+}
+.toolbar .seg button {
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--hairline);
+  color: var(--ink-soft);
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: color 140ms, background 140ms;
+}
+.toolbar .seg button:last-child {
+  border-right: none;
+}
+.toolbar .seg button:hover {
+  color: var(--ink);
+}
+.toolbar .seg button.on {
+  color: var(--ground-deep);
+  background: var(--brass);
+}
+.toolbar .tb-hint {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--ink-soft);
+}
+
 .stage {
   flex: 1 1 auto;
   overflow-y: auto;

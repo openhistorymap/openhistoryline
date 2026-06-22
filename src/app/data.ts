@@ -35,7 +35,7 @@ function iso(year: number): string {
 /** Dated items whose `instance of` is one of `classes`, point-in-time or start/end. */
 function classQuery(classes: string[], from = -3000, to = 2031, limit = 1000): string {
   const values = classes.map((q) => `wd:${q}`).join(' ');
-  return `SELECT ?item ?itemLabel ?itemDescription ?date ?endDate ?classLabel WHERE {
+  return `SELECT ?item ?itemLabel ?itemDescription ?date ?endDate ?classLabel ?countryLabel WHERE {
   VALUES ?class { ${values} }
   ?item wdt:P31 ?class .
   OPTIONAL { ?item wdt:P585 ?pit. }
@@ -45,10 +45,31 @@ function classQuery(classes: string[], from = -3000, to = 2031, limit = 1000): s
   BIND(?et AS ?endDate)
   FILTER(BOUND(?date))
   FILTER(?date >= "${iso(from)}"^^xsd:dateTime && ?date < "${iso(to)}"^^xsd:dateTime)
+  OPTIONAL { ?item wdt:P17 ?country. }
   SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
 }
 ORDER BY ?date
 LIMIT ${limit}`;
+}
+
+/**
+ * The country facet of an event, for "group by country" swimlanes. Reads the
+ * Wikidata SPARQL binding (`countryLabel`) or a PeriodO period's spatial
+ * coverage. Returns undefined when no place is known (those fall into "Other").
+ */
+export function eventCountry(e: TimelineEvent): string | undefined {
+  const d = e.data as
+    | (Record<string, { value?: string }> & {
+        spatialCoverageDescription?: string;
+        spatialCoverage?: { label?: string }[];
+      })
+    | undefined;
+  if (!d) return undefined;
+  const cl = (d as Record<string, { value?: string }>)['countryLabel'];
+  if (cl?.value && !/^Q\d+$/.test(cl.value)) return cl.value;
+  if (d.spatialCoverageDescription) return d.spatialCoverageDescription;
+  if (Array.isArray(d.spatialCoverage) && d.spatialCoverage[0]?.label) return d.spatialCoverage[0].label;
+  return undefined;
 }
 
 /** A Wikidata class layer: tooltip carries the precise class via the description. */
@@ -214,7 +235,7 @@ export async function fetchWikidataInfo(qid: string, signal?: AbortSignal): Prom
 
 /** Build a removable layer from a chosen entity: dated events located in / about it. */
 export function entityLayer(hit: EntityHit, index: number): Layer {
-  const sparql = `SELECT ?item ?itemLabel ?itemDescription ?date ?endDate ?classLabel WHERE {
+  const sparql = `SELECT ?item ?itemLabel ?itemDescription ?date ?endDate ?classLabel ?countryLabel WHERE {
   ?item wdt:P31 ?class .
   { ?item wdt:P276 wd:${hit.id} } UNION { ?item wdt:P17 wd:${hit.id} }
   UNION { ?item wdt:P710 wd:${hit.id} } UNION { ?item wdt:P361 wd:${hit.id} }
@@ -224,6 +245,9 @@ export function entityLayer(hit: EntityHit, index: number): Layer {
   BIND(COALESCE(?pit, ?st) AS ?date)
   BIND(?et AS ?endDate)
   FILTER(BOUND(?date))
+  OPTIONAL { ?item wdt:P17 ?c1. }
+  OPTIONAL { ?item wdt:P276 ?loc. ?loc wdt:P17 ?c2. }
+  BIND(COALESCE(?c1, ?c2) AS ?country)
   SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
 }
 ORDER BY ?date
