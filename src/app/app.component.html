@@ -2,7 +2,7 @@
   <header class="topbar">
     <div class="brand">
       <span class="logo">Open History Line</span>
-      <span class="tag">an interactive timeline of history</span>
+      <span class="tag">compose layers of history, and read across them</span>
     </div>
 
     <div class="search">
@@ -12,7 +12,7 @@
         (input)="onSearchInput()"
         (focus)="onSearchInput()"
         (blur)="closeSearch()"
-        placeholder="Search Wikidata — a place, person, or empire…"
+        placeholder="Add a layer from Wikidata — a place, person, or empire…"
         autocomplete="off"
         spellcheck="false"
       />
@@ -30,21 +30,43 @@
 
   <div class="body">
     <aside class="panel">
-      <ng-container *ngFor="let src of sources">
-        <h3 class="src">{{ src }}</h3>
+      <div class="panel-head">
+        <span class="layers-on">{{ active.size }} active</span>
+        <button class="clear" *ngIf="active.size" (click)="clearAll()">clear</button>
+      </div>
+
+      <ng-container *ngIf="dynamicLayers.length">
+        <h3 class="cat">Search</h3>
+        <div class="layer dynamic" *ngFor="let l of dynamicLayers" [class.active]="active.has(l.id)">
+          <button class="layer-main" (click)="toggle(l)" [style.--c]="l.color">
+            <span class="dot"></span>
+            <span class="l-label">{{ l.label }}</span>
+            <span class="l-count" *ngIf="counts.get(l.id) as n">{{ n }}</span>
+            <span class="spin" *ngIf="loadingIds.has(l.id)"></span>
+          </button>
+          <button class="remove" title="Remove" (click)="removeDynamic(l)">✕</button>
+        </div>
+      </ng-container>
+
+      <ng-container *ngFor="let cat of categories">
+        <h3 class="cat">{{ cat }}</h3>
         <button
-          class="coll"
-          *ngFor="let c of collectionsBySource(src)"
-          [class.active]="c.id === activeId"
-          (click)="selectCollection(c)"
+          class="layer layer-main"
+          *ngFor="let l of layersIn(cat)"
+          [class.active]="active.has(l.id)"
+          (click)="toggle(l)"
+          [style.--c]="l.color"
         >
-          <span class="c-label">{{ c.label }}</span>
-          <span class="c-blurb">{{ c.blurb }}</span>
+          <span class="dot"></span>
+          <span class="l-label">{{ l.label }}</span>
+          <span class="l-count" *ngIf="counts.get(l.id) as n">{{ n }}</span>
+          <span class="spin" *ngIf="loadingIds.has(l.id)"></span>
         </button>
       </ng-container>
 
       <p class="credit">
-        Events from <a href="https://www.wikidata.org" target="_blank" rel="noopener">Wikidata</a>
+        Layers compose into swimlanes you can read across — e.g. famines beside wars.
+        Data from <a href="https://www.wikidata.org" target="_blank" rel="noopener">Wikidata</a>
         &amp; <a href="https://perio.do" target="_blank" rel="noopener">PeriodO</a>, drawn with
         <a href="https://github.com/openhistorymap/timelin" target="_blank" rel="noopener">timel.in</a>.
       </p>
@@ -54,7 +76,7 @@
       <div class="stage">
         <timelin-timeline
           [year]="year"
-          [groupGutter]="148"
+          [groupGutter]="156"
           (yearChange)="year = $event"
           (eventSelect)="onEvent($event)"
           (groupSelect)="onGroup($event)"
@@ -63,14 +85,14 @@
 
       <div class="footer">
         <div class="status">
-          <span class="spin" *ngIf="loading"></span>
+          <span class="spin" *ngIf="loadingIds.size"></span>
           <span>{{ status }}</span>
         </div>
 
         <div class="detail" *ngIf="selected">
           <span class="d-year">{{ yearRange(selected) }}</span>
           <span class="d-title">{{ selected.title }}</span>
-          <span class="d-group" *ngIf="selected.group">{{ selected.group }}</span>
+          <span class="d-group" *ngIf="selected.group">{{ layerLabel(selected.group) }}</span>
           <span class="d-desc" *ngIf="selected.description">{{ selected.description }}</span>
           <a *ngIf="selected.url" [href]="selected.url" target="_blank" rel="noopener">View source ↗</a>
         </div>
