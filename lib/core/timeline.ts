@@ -10,7 +10,18 @@ import {
   TimelineOptions,
   ViewRange,
 } from './types';
-import { formatPlainYear, formatYear, formatYearRange, numericYear } from './time';
+import {
+  DAY,
+  HOUR,
+  MONTH,
+  MONTHS_SHORT,
+  decomposeYear,
+  formatCursor,
+  formatPlainYear,
+  formatYear,
+  formatYearRange,
+  numericYear,
+} from './time';
 import { DEFAULT_ERAS } from './eras';
 import { CSS, STYLE_ELEMENT_ID } from './styles';
 
@@ -118,9 +129,10 @@ export class Timeline {
   private readoutPlain!: HTMLSpanElement;
   private tooltip!: HTMLDivElement;
 
-  private opts: Required<Omit<TimelineOptions, 'theme' | 'view' | 'maxHeight'>> & {
+  private opts: Required<Omit<TimelineOptions, 'theme' | 'view' | 'maxHeight' | 'extent'>> & {
     theme?: Partial<Theme>;
     maxHeight?: number;
+    extent?: [number, number];
   };
 
   private scrollY = 0;
@@ -159,7 +171,10 @@ export class Timeline {
   private hoveredEra: number | null = null;
   private hoveredEvent: string | null = null;
   /* Marker element refs, so hover highlights toggle in place (no re-render → no flicker). */
-  private eventMarkers = new Map<string, { el: SVGElement; span: boolean; colored: boolean }>();
+  private eventMarkers = new Map<
+    string,
+    { el: SVGElement; span: boolean; colored: boolean; r: number; emph: boolean }
+  >();
   private eraMarkers = new Map<number, SVGElement[]>();
 
   /* interaction state */
@@ -197,12 +212,13 @@ export class Timeline {
       groupGutter: options.groupGutter ?? 132,
       ungroupedLabel: options.ungroupedLabel ?? '',
       maxSubLanes: options.maxSubLanes ?? 6,
-      minSpan: options.minSpan ?? 20,
+      minSpan: options.minSpan ?? HOUR, // deep sub-year zoom (down to ~1 hour)
       maxSpan: options.maxSpan ?? 20000,
       injectStyles: options.injectStyles ?? true,
       animate: options.animate ?? true,
       seekOnEventClick: options.seekOnEventClick ?? true,
       maxHeight: options.maxHeight,
+      extent: options.extent,
       theme: options.theme,
     };
 
@@ -217,11 +233,9 @@ export class Timeline {
 
     this.measure();
     if (options.view) {
-      this.viewStart = options.view.start;
-      this.viewEnd = options.view.end;
+      this.setView_(options.view.start, options.view.end);
     } else {
-      this.viewStart = this.cursorYear - this.opts.viewSpan / 2;
-      this.viewEnd = this.cursorYear + this.opts.viewSpan / 2;
+      this.setView_(this.cursorYear - this.opts.viewSpan / 2, this.cursorYear + this.opts.viewSpan / 2);
     }
     this.recompute();
 
@@ -342,6 +356,23 @@ export class Timeline {
   private yearAt(px: number): number {
     const span = this.viewEnd - this.viewStart;
     return this.viewStart + ((px - this.layout.plotLeft) / this.layout.plotWidth) * span;
+  }
+
+  /** Clamp a desired view to the configured `extent` (no-op when unset). */
+  private clampView(start: number, end: number): [number, number] {
+    const ext = this.opts.extent;
+    if (!ext) return [start, end];
+    const [lo, hi] = ext;
+    const span = end - start;
+    const maxW = hi - lo;
+    if (span >= maxW) return [lo, hi]; // can't show wider than the extent
+    if (start < lo) return [lo, lo + span];
+    if (end > hi) return [hi - span, hi];
+    return [start, end];
+  }
+
+  private setView_(start: number, end: number): void {
+    [this.viewStart, this.viewEnd] = this.clampView(start, end);
   }
 
   /* ===================================================================== */
@@ -547,37 +578,60 @@ export class Timeline {
     }
   }
 
-  private renderTicks() {
-    const span = this.viewEnd - this.viewStart;
-    const pxPerYear = this.layout.plotWidth / span;
+  /** Build axis ticks for the current zoom — years, then months, days, hours. */
+  private computeTicks(): Tick[] {
+    const start = this.viewStart;
+    const end = this.viewEnd;
+    const pxPerYear = this.layout.plotWidth / (end - start);
+    const out: Tick[] = [];
+    const fmod = (n: number, m: number) => ((n % m) + m) % m;
+    const push = (pos: number, major: boolean, label?: string) => {
+      if (pos >= start && pos <= end) out.push({ year: pos, x: 0, major, label });
+    };
 
-    let minor: number;
-    let major: number;
-    if (pxPerYear >= 12) {
-      minor = 1;
-      major = 10;
-    } else if (pxPerYear >= 1.2) {
-      minor = 10;
-      major = 100;
-    } else if (pxPerYear >= 0.12) {
-      minor = 100;
-      major = 1000;
+    if (pxPerYear * HOUR >= 6) {
+      const lab = pxPerYear * HOUR >= 26;
+      for (let i = Math.floor(start / HOUR); i <= Math.ceil(end / HOUR); i++) {
+        const H = fmod(i, 24);
+        const td = Math.floor(i / 24);
+        const D = fmod(td, 31);
+        const M = fmod(Math.floor(td / 31), 12);
+        push(i * HOUR, H === 0, H === 0 ? `${D + 1} ${MONTHS_SHORT[M]}` : lab ? `${String(H).padStart(2, '0')}h` : undefined);
+      }
+    } else if (pxPerYear * DAY >= 6) {
+      const lab = pxPerYear * DAY >= 18;
+      for (let j = Math.floor(start / DAY); j <= Math.ceil(end / DAY); j++) {
+        const D = fmod(j, 31);
+        const tm = Math.floor(j / 31);
+        const M = fmod(tm, 12);
+        const Y = Math.floor(tm / 12);
+        push(j * DAY, D === 0, D === 0 ? `${MONTHS_SHORT[M]} ${formatYear(Y)}` : lab ? String(D + 1) : undefined);
+      }
+    } else if (pxPerYear * MONTH >= 6) {
+      const lab = pxPerYear * MONTH >= 26;
+      for (let k = Math.floor(start / MONTH); k <= Math.ceil(end / MONTH); k++) {
+        const M = fmod(k, 12);
+        const Y = Math.floor(k / 12);
+        push(k * MONTH, M === 0, M === 0 ? formatYear(Y) : lab ? MONTHS_SHORT[M] : undefined);
+      }
     } else {
-      minor = 1000;
-      major = 5000;
+      let minor: number;
+      let major: number;
+      if (pxPerYear >= 12) [minor, major] = [1, 10];
+      else if (pxPerYear >= 1.2) [minor, major] = [10, 100];
+      else if (pxPerYear >= 0.12) [minor, major] = [100, 1000];
+      else [minor, major] = [1000, 5000];
+      for (let yv = Math.ceil(start / minor) * minor; yv <= end; yv += minor) {
+        const yr = Math.round(yv);
+        push(yr, yr % major === 0, yr % major === 0 ? formatYear(yr) : undefined);
+      }
     }
+    return out;
+  }
 
-    const ticks: Tick[] = [];
-    const startTick = Math.ceil(this.viewStart / minor) * minor;
-    for (let yv = startTick; yv <= this.viewEnd; yv += minor) {
-      const yr = Math.round(yv);
-      ticks.push({
-        year: yr,
-        x: this.xFor(yr),
-        major: yr % major === 0,
-        label: yr % major === 0 ? formatYear(yr) : undefined,
-      });
-    }
+  private renderTicks() {
+    const ticks = this.computeTicks();
+    for (const t of ticks) t.x = this.xFor(t.year);
 
     clear(this.gTicks);
     clear(this.gLabels);
@@ -645,13 +699,10 @@ export class Timeline {
         width: 18,
         height: lineBottom - top + 6,
         class: 'timelin-era-hit',
+        'data-era': String(i), // resolved on click in onPointerUp
       });
       hit.addEventListener('mouseenter', () => this.showEraTooltip(i, x));
       hit.addEventListener('mouseleave', () => this.hideTooltip());
-      hit.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        this.activateEra(i);
-      });
       this.gEras.append(hit);
     });
   }
@@ -709,6 +760,7 @@ export class Timeline {
     if (x1 - x0 < MIN_W) x1 = x0 + MIN_W;
     const hovered = this.hoveredEvent === ev.id;
     const plotLeft = this.layout.plotLeft;
+    const emph = ev.emphasis === true;
 
     if (isSpan) {
       const xC = Math.max(plotLeft, x0);
@@ -719,25 +771,26 @@ export class Timeline {
         width: Math.max(1, w),
         height: EVENT_H,
         rx: 2,
-        class: 'timelin-event-span' + (hovered ? ' is-hovered' : ''),
+        class: 'timelin-event-span' + (hovered ? ' is-hovered' : '') + (emph ? ' is-emphasis' : ''),
       });
       if (color) {
         rect.style.fill = color;
-        rect.style.fillOpacity = hovered ? '0.6' : '0.34';
+        rect.style.fillOpacity = hovered || emph ? '0.6' : '0.34';
         rect.style.stroke = color;
       }
-      this.eventMarkers.set(ev.id, { el: rect, span: true, colored: !!color });
+      this.eventMarkers.set(ev.id, { el: rect, span: true, colored: !!color, r: 3, emph });
       this.gEvents.append(rect);
     } else {
       const cx = Math.max(plotLeft, Math.min(this.width, x0));
+      const baseR = emph ? 5 : 3;
       const dot = svgEl('circle', {
         cx,
         cy: yTop + EVENT_H / 2,
-        r: hovered ? 4 : 3,
-        class: 'timelin-event-dot' + (hovered ? ' is-hovered' : ''),
+        r: hovered ? baseR + 1 : baseR,
+        class: 'timelin-event-dot' + (hovered ? ' is-hovered' : '') + (emph ? ' is-emphasis' : ''),
       });
       if (color) dot.style.fill = color;
-      this.eventMarkers.set(ev.id, { el: dot, span: false, colored: !!color });
+      this.eventMarkers.set(ev.id, { el: dot, span: false, colored: !!color, r: baseR, emph });
       this.gEvents.append(dot);
     }
 
@@ -749,14 +802,11 @@ export class Timeline {
       width: hitW,
       height: EVENT_H + 4,
       class: 'timelin-event-hit',
+      'data-ev': ev.id, // resolved on click in onPointerUp (pointer capture eats hit clicks)
     });
     const cx = (Math.max(plotLeft, x0) + Math.min(this.width, x1)) / 2;
     hit.addEventListener('mouseenter', () => this.showEventTooltip(ev, cx, anchorY));
     hit.addEventListener('mouseleave', () => this.hideTooltip());
-    hit.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.activateEvent(ev);
-    });
     this.gEvents.append(hit);
   }
 
@@ -810,7 +860,7 @@ export class Timeline {
   private renderCursor() {
     clear(this.gCursor);
     this.cursorX = this.xFor(this.cursorYear);
-    this.readoutPlain.textContent = formatPlainYear(this.cursorYear);
+    this.readoutPlain.textContent = formatCursor(this.cursorYear, this.viewEnd - this.viewStart);
 
     const offLeft = this.cursorX < this.layout.plotLeft;
     const offRight = this.cursorX > this.width;
@@ -870,9 +920,9 @@ export class Timeline {
     if (!m) return;
     m.el.classList.toggle('is-hovered', on);
     if (m.span) {
-      if (m.colored) m.el.style.fillOpacity = on ? '0.6' : '0.34';
+      if (m.colored) m.el.style.fillOpacity = on || m.emph ? '0.6' : '0.34';
     } else {
-      m.el.setAttribute('r', on ? '4' : '3');
+      m.el.setAttribute('r', String(on ? m.r + 1 : m.r));
     }
   }
 
@@ -988,8 +1038,7 @@ export class Timeline {
     // Horizontal drag pans time; vertical drag scrolls the lanes (2D pan).
     const span = this.dragStartView[1] - this.dragStartView[0];
     const shift = (-dx / this.layout.plotWidth) * span;
-    this.viewStart = this.dragStartView[0] + shift;
-    this.viewEnd = this.dragStartView[1] + shift;
+    this.setView_(this.dragStartView[0] + shift, this.dragStartView[1] + shift);
     if (this.layout.maxScrollY > 0) {
       this.scrollY = Math.max(0, Math.min(this.dragStartScrollY - dyPx, this.layout.maxScrollY));
     }
@@ -1011,12 +1060,28 @@ export class Timeline {
     }
     if (!this.dragging) return;
     this.dragging = false;
-    if (!this.dragMoved) {
-      const y = this.yearAt(this.localX(ev));
-      this.cursorYear = y;
-      this.renderCursor();
-      this.emit('yearChange', y);
+    if (this.dragMoved) return;
+
+    // Pointer capture routes the click to the SVG, so hit-rect click handlers
+    // never fire — resolve what was clicked here instead.
+    const el = document.elementFromPoint(ev.clientX, ev.clientY);
+    const evId = el?.getAttribute('data-ev');
+    if (evId) {
+      const event = this.events.find((e) => e.id === evId);
+      if (event) {
+        this.activateEvent(event);
+        return;
+      }
     }
+    const eraI = el?.getAttribute('data-era');
+    if (eraI != null) {
+      this.activateEra(parseInt(eraI, 10));
+      return;
+    }
+    const y = this.yearAt(this.localX(ev));
+    this.cursorYear = y;
+    this.renderCursor();
+    this.emit('yearChange', y);
   };
 
   private onWheel = (ev: WheelEvent) => {
@@ -1035,8 +1100,8 @@ export class Timeline {
     const factor = ev.deltaY > 0 ? 1.2 : 1 / 1.2;
     const newSpan = Math.max(this.opts.minSpan, Math.min(this.opts.maxSpan, span * factor));
     const ratio = (yAtCursor - this.viewStart) / span;
-    this.viewStart = yAtCursor - ratio * newSpan;
-    this.viewEnd = this.viewStart + newSpan;
+    const start = yAtCursor - ratio * newSpan;
+    this.setView_(start, start + newSpan);
     this.recompute();
   };
 
@@ -1134,13 +1199,11 @@ export class Timeline {
     const margin = span * 0.15;
     if (this.cursorYear > this.viewEnd - margin) {
       const shift = this.cursorYear - (this.viewEnd - margin);
-      this.viewStart += shift;
-      this.viewEnd += shift;
+      this.setView_(this.viewStart + shift, this.viewEnd + shift);
       this.recompute();
     } else if (this.cursorYear < this.viewStart + margin) {
       const shift = this.viewStart + margin - this.cursorYear;
-      this.viewStart -= shift;
-      this.viewEnd -= shift;
+      this.setView_(this.viewStart - shift, this.viewEnd - shift);
       this.recompute();
     }
   }
@@ -1166,8 +1229,7 @@ export class Timeline {
   }
 
   setView(start: DecimalYear, end: DecimalYear) {
-    this.viewStart = start;
-    this.viewEnd = end;
+    this.setView_(start, end);
     this.recompute();
   }
 
@@ -1176,8 +1238,7 @@ export class Timeline {
   }
 
   centerOn(year: DecimalYear, span = this.viewEnd - this.viewStart) {
-    this.viewStart = year - span / 2;
-    this.viewEnd = year + span / 2;
+    this.setView_(year - span / 2, year + span / 2);
     this.recompute();
   }
 

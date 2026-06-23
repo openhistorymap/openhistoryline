@@ -21,6 +21,9 @@ export {
   partsToDecimalYear,
   calendarDecimal,
   decimalToCalendarDate,
+  decomposeYear,
+  formatCursor,
+  MONTHS_SHORT,
 } from './time';
 
 export type {

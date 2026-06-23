@@ -155,3 +155,46 @@ export function decimalToCalendarDate(year: DecimalYear): Date {
   const span = startOfNext.getTime() - startOfYear.getTime();
   return new Date(startOfYear.getTime() + frac * span);
 }
+
+/** Decimal-year fractions of one month, one day, and one hour in the OHM model. */
+export const MONTH = 1 / 12;
+export const DAY = 1 / 12 / 31;
+export const HOUR = 1 / 12 / 31 / 24;
+
+export const MONTHS_SHORT = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+/**
+ * Decompose a decimal year into OHM-model components — `year` (calendar),
+ * `month` 0–11, `day` 0–30, `hour` 0–23 — using floor so negative (BCE) years
+ * stay monotonic. Matches the axis encoding (12 months, 31 days, 24 hours).
+ */
+export function decomposeYear(value: DecimalYear): {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+} {
+  const year = Math.floor(value);
+  let rest = value - year;
+  const month = Math.min(11, Math.floor(rest * 12));
+  rest = rest * 12 - month;
+  const day = Math.min(30, Math.floor(rest * 31));
+  rest = rest * 31 - day;
+  const hour = Math.min(23, Math.floor(rest * 24));
+  return { year, month, day, hour };
+}
+
+/**
+ * Cursor readout that grows more precise as you zoom: just the year for wide
+ * spans, then month, day, and hour as `span` (visible years) shrinks.
+ */
+export function formatCursor(value: DecimalYear, span: number): string {
+  const yr = formatPlainYear(value);
+  if (span > 6) return yr;
+  const { month, day, hour } = decomposeYear(value);
+  if (span > 0.5) return `${MONTHS_SHORT[month]} ${yr}`;
+  if (span > 0.04) return `${day + 1} ${MONTHS_SHORT[month]} ${yr}`;
+  return `${day + 1} ${MONTHS_SHORT[month]} ${yr}, ${String(hour).padStart(2, '0')}h`;
+}

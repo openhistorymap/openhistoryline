@@ -63,6 +63,7 @@ export class TimelinTimelineComponent implements AfterViewInit, OnChanges, OnDes
   @Input() theme?: Partial<Theme>;
   @Input() minSpan?: number;
   @Input() maxSpan?: number;
+  @Input() extent?: [number, number];
   @Input() animate = true;
   @Input() seekOnEventClick = true;
 
@@ -95,6 +96,7 @@ export class TimelinTimelineComponent implements AfterViewInit, OnChanges, OnDes
         theme: this.theme,
         minSpan: this.minSpan,
         maxSpan: this.maxSpan,
+        extent: this.extent,
         animate: this.animate,
         seekOnEventClick: this.seekOnEventClick,
       });

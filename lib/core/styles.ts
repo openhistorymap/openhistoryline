@@ -90,6 +90,9 @@ export const CSS = `
   transition: fill 140ms linear, r 140ms var(--timelin-ease-quick);
 }
 .timelin-event-dot.is-hovered { fill: var(--timelin-brass); }
+/* Emphasised events (e.g. pivotal/igniting) — a bright ring that stands out. */
+.timelin-event-dot.is-emphasis { stroke: var(--timelin-ink-bright); stroke-width: 1.5; }
+.timelin-event-span.is-emphasis { stroke: var(--timelin-ink-bright); stroke-width: 1.5; }
 .timelin-event-hit { fill: transparent; cursor: pointer; }
 
 /* SWIMLANES + GUTTER ------------------------------------------------------ */
@@ -143,14 +146,17 @@ export const CSS = `
 .timelin-era-hit { fill: transparent; cursor: pointer; }
 
 /* CURSOR ------------------------------------------------------------------ */
+.timelin-cursor { pointer-events: none; } /* never block clicks on events beneath it */
 .timelin-cursor-line {
   stroke: var(--timelin-brass);
   stroke-width: 1.25;
   shape-rendering: crispEdges;
+  pointer-events: none;
 }
 .timelin-cursor-cap, .timelin-cursor-base {
   fill: var(--timelin-brass);
   stroke: none;
+  pointer-events: none;
 }
 
 .timelin-readout {
